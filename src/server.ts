@@ -8,15 +8,20 @@ import * as dotenv from 'dotenv';
 import { createRequire } from "module";
 import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
+import { migrate } from 'drizzle-orm/mysql2/migrator';
 import * as schema from './db/schema';
 import { eq, desc, asc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+
 
 dotenv.config(); // Load .env if exists
 dotenv.config({ path: '.env.production' }); // Load .env.production as fallback
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const require = createRequire(import.meta.url);
 
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
@@ -30,18 +35,41 @@ process.on('unhandledRejection', (reason, promise) => {
 // Database Initialization (MySQL)
 let db;
 let pool;
-try {
-    const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) throw new Error("DATABASE_URL missing");
+async function initDB() {
+    try {
+        const dbUrl = process.env.DATABASE_URL;
+        if (!dbUrl) throw new Error("DATABASE_URL missing");
 
-    // Explicitly handle 127.0.0.1 vs localhost if needed, but standard URI should work
-    pool = mysql.createPool({ uri: dbUrl });
-    db = drizzle(pool, { mode: 'default', schema });
-    console.log("✅ MySQL Database initialized successfully");
-} catch (error) {
-    console.error("Failed to initialize MySQL Connection:", error.message);
-    // db remains undefined
+        console.log("Initializing MySQL...");
+        pool = mysql.createPool({ uri: dbUrl });
+        db = drizzle(pool, { mode: 'default', schema });
+        console.log("✅ MySQL Database initialized successfully");
+
+        // --- AUTO-MIGRATION (Schema Push) ---
+        // This ensures tables exist without needing SSH 'drizzle-kit push'
+        console.log("Checking for pending migrations...");
+
+        // Path to migrations folder. 
+        // In local dev: './drizzle' (relative to root)
+        // In prod dist: needs to be accessible. We assume 'drizzle' folder is copied to root or we point to it.
+        // Let's try to resolve it.
+        const migrationFolder = path.join(__dirname, '..', 'drizzle');
+
+        if (fs.existsSync(migrationFolder)) {
+            console.log(`Running migrations from: ${migrationFolder}`);
+            await migrate(db, { migrationsFolder: migrationFolder });
+            console.log("✅ Database schema migrated successfully");
+        } else {
+            console.warn(`⚠️ Migration folder not found at ${migrationFolder}. Skipping auto-migration.`);
+        }
+    } catch (error) {
+        console.error("Failed to initialize MySQL Connection or Run Migrations:", error.message);
+        // db remains undefined or partially init
+    }
 }
+
+// Initialize DB on start
+initDB();
 
 // Helper to check DB status before requests
 const ensureDb = (req, res, next) => {
@@ -75,6 +103,126 @@ app.get('/', (req, res) => {
 });
 
 // --- API Routes ---
+
+// SPECIAL: Data Migration Endpoint (Run manually by user)
+app.get('/api/admin/run-firebase-migration', async (req, res) => {
+    if (!db) return res.status(503).json({ error: "MySQL not connected" });
+
+    console.log("🚀 Starting Manual Data Migration...");
+    const logs = [];
+    const log = (m) => { console.log(m); logs.push(m); };
+
+    try {
+        // 1. Init Firebase (Local scope only)
+        let dbFS;
+        try {
+            // Need service account
+            const serviceAccount = require("../serviceAccountKey.json");
+            // Check if already init
+            try { initializeApp({ credential: cert(serviceAccount as any), databaseURL: "https://uhd-first-default-rtdb.firebaseio.com" }, 'migration-app'); }
+            catch { /* ignore if exists */ }
+
+            // Get app instance (default or named)
+            // Just try getting Firestore from default or new app
+            // Actually, initializeApp without name uses default. If default exists, it throws.
+            // We can check `admin.apps.length`.
+            // Simplest: Just try catch.
+
+            // To be safe, we'll assume default app might be init if we kept it? 
+            // Previous code removed it. So we init here.
+
+            // Since we removed 'firebase-admin' global init, we can init a specific app for migration
+            const fsApp = initializeApp({
+                credential: cert(serviceAccount as any),
+                databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
+            }, 'migration-' + Date.now()); // Unique name to avoid clashes
+            dbFS = getFirestore(fsApp);
+
+            log("✅ Firebase initialized for migration");
+        } catch (e) {
+            log("❌ Failed to init Firebase: " + e.message);
+            log("Ensure serviceAccountKey.json is on server root.");
+            return res.status(500).json({ logs, error: "Firebase Init Failed" });
+        }
+
+        // 3. Migrate Projects
+        log("📦 Migrating Projects...");
+        const projectsSnap = await dbFS.collection('projects').get();
+        let pCount = 0;
+        for (const doc of projectsSnap.docs) {
+            const data = doc.data();
+            await db.insert(schema.projects).values({
+                id: doc.id,
+                title: data.title || "Untitled",
+                location: data.location || "",
+                price: data.price ? String(data.price) : null,
+                description: data.description || "",
+                status: data.status || "Ongoing",
+                imageUrl: data.imageUrl || "",
+                logoUrl: data.logoUrl || null,
+                buildingAmenities: data.buildingAmenities || [],
+                order: data.order || 0,
+            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
+            pCount++;
+        }
+        log(`Synced ${pCount} Projects.`);
+
+        // 4. Migrate Gallery
+        log("🖼 Migrating Gallery...");
+        const gallerySnap = await dbFS.collection('gallery_items').get();
+        let gCount = 0;
+        for (const doc of gallerySnap.docs) {
+            const data = doc.data();
+            await db.insert(schema.galleryItems).values({
+                id: doc.id,
+                url: data.url || "",
+                caption: data.caption || "",
+                category: data.category || "General"
+            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
+            gCount++;
+        }
+        log(`Synced ${gCount} Gallery Items.`);
+
+        // 5. Migrate Messages
+        log("💬 Migrating Messages...");
+        const msgSnap = await dbFS.collection('messages').get();
+        let mCount = 0;
+        for (const doc of msgSnap.docs) {
+            const data = doc.data();
+            await db.insert(schema.messages).values({
+                id: doc.id,
+                name: data.name || "Unknown",
+                email: data.email || "no-email",
+                phone: data.phone || "",
+                message: data.message || "",
+                date: data.date ? new Date(data.date) : new Date(),
+                read: data.read || false
+            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
+            mCount++;
+        }
+        log(`Synced ${mCount} Messages.`);
+
+        // 6. Settings
+        log("⚙️ Migrating Settings...");
+        const settingsDoc = await dbFS.collection('site_settings').doc('global').get();
+        if (settingsDoc.exists) {
+            const data = settingsDoc.data();
+            await db.insert(schema.siteSettings).values({
+                id: 1,
+                settings: data?.settings || {}
+            }).onDuplicateKeyUpdate({ set: { settings: data?.settings || {} } });
+            log("Synced Settings.");
+        }
+
+        log("✅ Migration Complete!");
+        res.json({ success: true, logs });
+
+    } catch (err) {
+        log("❌ Migration Error: " + err.message);
+        res.status(500).json({ error: err.message, logs });
+    }
+});
+
 
 // 1. Projects
 app.get('/api/projects', ensureDb, async (req, res) => {
