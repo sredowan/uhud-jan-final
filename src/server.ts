@@ -15,7 +15,8 @@ import mysql from 'mysql2/promise';
 (global as any).XMLHttpRequest = xhr.XMLHttpRequest;
 (global as any).WebSocket = WebSocket;
 
-dotenv.config();
+dotenv.config(); // Load .env if exists
+dotenv.config({ path: '.env.production' }); // Load .env.production as fallback
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
