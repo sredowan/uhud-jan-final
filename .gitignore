@@ -30,3 +30,5 @@ serviceAccountKey.json
 dist
 .vite
 
+
+temp_cleanup_repo/
