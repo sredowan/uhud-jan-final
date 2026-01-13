@@ -225,9 +225,9 @@ const upload = multer({
 
 app.post('/api/upload', upload.single('file'), (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-        const fileUrl = `/uploads/${req.file.filename}`;
-        res.json({ success: true, url: fileUrl, filename: req.file.filename });
+        if (!(req as any).file) return res.status(400).json({ error: 'No file uploaded' });
+        const fileUrl = `/uploads/${(req as any).file.filename}`;
+        res.json({ success: true, url: fileUrl, filename: (req as any).file.filename });
     } catch (err) {
         console.error('Upload error:', err);
         res.status(500).json({ error: 'Upload failed' });
