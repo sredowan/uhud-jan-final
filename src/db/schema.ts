@@ -1,31 +1,31 @@
-import { pgTable, text, timestamp, boolean, uuid } from 'drizzle-orm/pg-core';
+import { mysqlTable, varchar, timestamp, boolean, int, json, text } from 'drizzle-orm/mysql-core';
 
-export const user = pgTable('user', {
-    id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    email: text('email').notNull().unique(),
+export const user = mysqlTable('user', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    email: varchar('email', { length: 255 }).notNull().unique(),
     emailVerified: boolean('emailVerified').notNull(),
-    image: text('image'),
+    image: varchar('image', { length: 255 }),
     createdAt: timestamp('createdAt').notNull(),
     updatedAt: timestamp('updatedAt').notNull(),
 });
 
-export const session = pgTable('session', {
-    id: text('id').primaryKey(),
+export const session = mysqlTable('session', {
+    id: varchar('id', { length: 36 }).primaryKey(),
     expiresAt: timestamp('expiresAt').notNull(),
-    token: text('token').notNull().unique(),
+    token: varchar('token', { length: 255 }).notNull().unique(),
     createdAt: timestamp('createdAt').notNull(),
     updatedAt: timestamp('updatedAt').notNull(),
-    ipAddress: text('ipAddress'),
+    ipAddress: varchar('ipAddress', { length: 45 }),
     userAgent: text('userAgent'),
-    userId: text('userId').notNull().references(() => user.id),
+    userId: varchar('userId', { length: 36 }).notNull().references(() => user.id),
 });
 
-export const account = pgTable('account', {
-    id: text('id').primaryKey(),
-    accountId: text('accountId').notNull(),
-    providerId: text('providerId').notNull(),
-    userId: text('userId').notNull().references(() => user.id),
+export const account = mysqlTable('account', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    accountId: varchar('accountId', { length: 255 }).notNull(),
+    providerId: varchar('providerId', { length: 255 }).notNull(),
+    userId: varchar('userId', { length: 36 }).notNull().references(() => user.id),
     accessToken: text('accessToken'),
     refreshToken: text('refreshToken'),
     idToken: text('idToken'),
@@ -37,66 +37,64 @@ export const account = pgTable('account', {
     updatedAt: timestamp('updatedAt').notNull(),
 });
 
-export const verification = pgTable('verification', {
-    id: text('id').primaryKey(),
-    identifier: text('identifier').notNull(),
-    value: text('value').notNull(),
+export const verification = mysqlTable('verification', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    identifier: varchar('identifier', { length: 255 }).notNull(),
+    value: varchar('value', { length: 255 }).notNull(),
     expiresAt: timestamp('expiresAt').notNull(),
     createdAt: timestamp('createdAt'),
     updatedAt: timestamp('updatedAt'),
 });
 
-import { integer, jsonb } from 'drizzle-orm/pg-core';
-
 // --- Application Tables ---
 
-export const projects = pgTable('projects', {
-    id: uuid('id').defaultRandom().primaryKey(),
-    title: text('title').notNull(),
-    location: text('location').notNull(),
-    price: text('price'),
+export const projects = mysqlTable('projects', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    title: varchar('title', { length: 255 }).notNull(),
+    location: varchar('location', { length: 255 }).notNull(),
+    price: varchar('price', { length: 255 }),
     description: text('description').notNull(),
-    status: text('status').notNull(), // 'Ongoing' | 'Completed' | 'Upcoming'
+    status: varchar('status', { length: 50 }).notNull(), // 'Ongoing' | 'Completed' | 'Upcoming'
     imageUrl: text('imageUrl').notNull(),
     logoUrl: text('logoUrl'),
-    buildingAmenities: jsonb('buildingAmenities').$type<string[]>(),
-    order: integer('order').default(0),
+    buildingAmenities: json('buildingAmenities').$type<string[]>(),
+    order: int('order').default(0),
     createdAt: timestamp('createdAt').defaultNow(),
     updatedAt: timestamp('updatedAt').defaultNow(),
 });
 
-export const projectUnits = pgTable('project_units', {
-    id: uuid('id').defaultRandom().primaryKey(),
-    projectId: uuid('projectId').references(() => projects.id, { onDelete: 'cascade' }).notNull(),
-    name: text('name').notNull(),
-    size: text('size').notNull(),
-    bedrooms: integer('bedrooms').notNull(),
-    bathrooms: integer('bathrooms').notNull(),
-    balconies: integer('balconies').notNull(),
-    features: jsonb('features').$type<string[]>(),
+export const projectUnits = mysqlTable('project_units', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    projectId: varchar('projectId', { length: 36 }).references(() => projects.id, { onDelete: 'cascade' }).notNull(),
+    name: varchar('name', { length: 100 }).notNull(),
+    size: varchar('size', { length: 100 }).notNull(),
+    bedrooms: int('bedrooms').notNull(),
+    bathrooms: int('bathrooms').notNull(),
+    balconies: int('balconies').notNull(),
+    features: json('features').$type<string[]>(),
     floorPlanImage: text('floorPlanImage'),
 });
 
-export const galleryItems = pgTable('gallery_items', {
-    id: uuid('id').defaultRandom().primaryKey(),
+export const galleryItems = mysqlTable('gallery_items', {
+    id: varchar('id', { length: 36 }).primaryKey(),
     url: text('url').notNull(),
     caption: text('caption'),
-    category: text('category'),
+    category: varchar('category', { length: 100 }),
     createdAt: timestamp('createdAt').defaultNow(),
 });
 
-export const messages = pgTable('messages', {
-    id: uuid('id').defaultRandom().primaryKey(),
-    name: text('name').notNull(),
-    email: text('email').notNull(),
-    phone: text('phone').notNull(),
+export const messages = mysqlTable('messages', {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    name: varchar('name', { length: 255 }).notNull(),
+    email: varchar('email', { length: 255 }).notNull(),
+    phone: varchar('phone', { length: 50 }).notNull(),
     message: text('message').notNull(),
     date: timestamp('date').defaultNow(),
     read: boolean('read').default(false),
 });
 
-export const siteSettings = pgTable('site_settings', {
-    id: integer('id').primaryKey(), // Always 1
-    settings: jsonb('settings').notNull(), // Store full JSON object for flexibility
+export const siteSettings = mysqlTable('site_settings', {
+    id: int('id').primaryKey(), // Always 1
+    settings: json('settings').notNull(), // Store full JSON object for flexibility
     updatedAt: timestamp('updatedAt').defaultNow(),
 });

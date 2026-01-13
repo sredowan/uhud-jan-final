@@ -4,16 +4,13 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
 import * as dotenv from 'dotenv';
-import xhr from 'xmlhttprequest-ssl';
-import WebSocket from 'ws';
+import { createRequire } from "module";
+import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
-
-// Polyfill for Firebase (Might not be needed for Admin SDK but keeping for safety if mixed usage exists)
-(global as any).XMLHttpRequest = xhr.XMLHttpRequest;
-(global as any).WebSocket = WebSocket;
+import * as schema from './db/schema';
+import { eq, desc, asc } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config(); // Load .env if exists
 dotenv.config({ path: '.env.production' }); // Load .env.production as fallback
@@ -30,27 +27,26 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 
-// Initialize Firebase Admin SDK
-// Initialize Firebase Admin SDK
-import { createRequire } from "module";
+// Database Initialization (MySQL)
 let db;
+let pool;
 try {
-    const serviceAccount = require("../serviceAccountKey.json");
-    initializeApp({
-        credential: cert(serviceAccount as any),
-        databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
-    });
-    console.log("Firebase Admin SDK initialized successfully");
-    db = getFirestore();
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) throw new Error("DATABASE_URL missing");
+
+    // Explicitly handle 127.0.0.1 vs localhost if needed, but standard URI should work
+    pool = mysql.createPool({ uri: dbUrl });
+    db = drizzle(pool, { mode: 'default', schema });
+    console.log("✅ MySQL Database initialized successfully");
 } catch (error) {
-    console.error("Failed to initialize Firebase Admin (likely missing serviceAccountKey.json):", error.message);
-    // Do NOT crash the server, just let db be undefined
+    console.error("Failed to initialize MySQL Connection:", error.message);
+    // db remains undefined
 }
 
 // Helper to check DB status before requests
 const ensureDb = (req, res, next) => {
     if (!db) {
-        return res.status(503).json({ error: "Firebase Service Unavailable (Initialization Failed)" });
+        return res.status(503).json({ error: "Database Service Unavailable" });
     }
     next();
 };
@@ -81,20 +77,20 @@ app.get('/', (req, res) => {
 // --- API Routes ---
 
 // 1. Projects
-// 1. Projects
 app.get('/api/projects', ensureDb, async (req, res) => {
     console.log("GET /api/projects - Request received");
     try {
-        const projectsRef = db.collection("projects");
-        console.log("Querying projects collection...");
-        const snapshot = await projectsRef.orderBy("order", "asc").get();
-        console.log(`Found ${snapshot.size} projects`);
+        // Fetch projects with units
+        const projectsData = await db.query.projects.findMany({
+            orderBy: [asc(schema.projects.order)],
+            with: {
+                units: true
+            }
+        });
 
-        const projectsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log(`Found ${projectsData.length} projects`);
         res.json(projectsData);
     } catch (err: any) {
-        const logPath = path.join(__dirname, '..', 'server_error.log');
-        fs.appendFileSync(logPath, `Error fetching projects: ${err.message}\n${err.stack}\n`);
         console.error("Error fetching projects:", err);
         res.status(500).json({ error: "Failed to fetch projects", details: err.message });
     }
@@ -103,23 +99,32 @@ app.get('/api/projects', ensureDb, async (req, res) => {
 app.post('/api/projects', ensureDb, async (req, res) => {
     try {
         const { units, ...projectData } = req.body;
-        const projectsRef = db.collection("projects");
+        const projectId = uuidv4();
 
-        const newProjectData = {
+        // 1. Insert Project
+        await db.insert(schema.projects).values({
+            id: projectId,
             ...projectData,
-            order: Date.now(),
-            createdAt: new Date().toISOString()
-        };
+            order: Date.now(), // Use timestamp as simple order for now
+            // createdAt/updatedAt handled by defaultNow() in schema
+        });
 
-        const newProjectRef = await projectsRef.add(newProjectData);
-
+        // 2. Insert Units if any
         if (units && units.length > 0) {
-            const unitsRef = newProjectRef.collection("units");
-            for (const u of units) {
-                await unitsRef.add(u);
-            }
+            const unitsWithId = units.map(u => ({
+                id: uuidv4(),
+                projectId: projectId,
+                ...u
+            }));
+            await db.insert(schema.projectUnits).values(unitsWithId);
         }
-        res.json({ id: newProjectRef.id, ...newProjectData });
+
+        const newProject = await db.query.projects.findFirst({
+            where: eq(schema.projects.id, projectId),
+            with: { units: true }
+        });
+
+        res.json(newProject);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to create project" });
@@ -129,8 +134,9 @@ app.post('/api/projects', ensureDb, async (req, res) => {
 // 2. Gallery
 app.get('/api/gallery', ensureDb, async (req, res) => {
     try {
-        const snapshot = await db.collection("gallery_items").orderBy("createdAt", "desc").get();
-        const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        const items = await db.query.galleryItems.findMany({
+            orderBy: [desc(schema.galleryItems.createdAt)]
+        });
         res.json(items);
     } catch (err) { res.status(500).json({ error: "Failed to fetch gallery" }); }
 });
@@ -138,19 +144,20 @@ app.get('/api/gallery', ensureDb, async (req, res) => {
 app.post('/api/gallery', ensureDb, async (req, res) => {
     try {
         const newItem = {
+            id: uuidv4(),
             ...req.body,
-            createdAt: new Date().toISOString()
         };
-        const docRef = await db.collection("gallery_items").add(newItem);
-        res.json({ id: docRef.id, ...newItem });
+        await db.insert(schema.galleryItems).values(newItem);
+        res.json(newItem);
     } catch (err) { res.status(500).json({ error: "Failed to add gallery item" }); }
 });
 
 // 3. Messages
 app.get('/api/messages', ensureDb, async (req, res) => {
     try {
-        const snapshot = await db.collection("messages").orderBy("date", "desc").get();
-        const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        const msgs = await db.query.messages.findMany({
+            orderBy: [desc(schema.messages.date)]
+        });
         res.json(msgs);
     } catch (err) { res.status(500).json({ error: "Failed to fetch messages" }); }
 });
@@ -158,34 +165,41 @@ app.get('/api/messages', ensureDb, async (req, res) => {
 app.post('/api/messages', ensureDb, async (req, res) => {
     try {
         const newMsg = {
+            id: uuidv4(),
             ...req.body,
-            date: new Date().toISOString()
+            date: new Date()
         };
-        const docRef = await db.collection("messages").add(newMsg);
-        res.json({ id: docRef.id, ...newMsg });
+        await db.insert(schema.messages).values(newMsg);
+        res.json(newMsg);
     } catch (err) { res.status(500).json({ error: "Failed to send message" }); }
 });
 
 // 4. Settings
 app.get('/api/settings', ensureDb, async (req, res) => {
     try {
-        const docRef = db.collection("site_settings").doc("global");
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            res.json(docSnap.data()?.settings || {});
-        } else {
-            res.json({});
-        }
+        const settings = await db.query.siteSettings.findFirst({
+            where: eq(schema.siteSettings.id, 1)
+        });
+        res.json(settings?.settings || {});
     } catch (err) { res.status(500).json({ error: "Failed to fetch settings" }); }
 });
 
 app.post('/api/settings', ensureDb, async (req, res) => {
     try {
-        const docRef = db.collection("site_settings").doc("global");
-        await docRef.set({
-            settings: req.body,
-            updatedAt: new Date().toISOString()
-        }, { merge: true });
+        const existing = await db.query.siteSettings.findFirst({
+            where: eq(schema.siteSettings.id, 1)
+        });
+
+        if (existing) {
+            await db.update(schema.siteSettings)
+                .set({ settings: req.body, updatedAt: new Date() })
+                .where(eq(schema.siteSettings.id, 1));
+        } else {
+            await db.insert(schema.siteSettings).values({
+                id: 1,
+                settings: req.body
+            });
+        }
         res.json(req.body);
     } catch (err) { res.status(500).json({ error: "Failed to save settings" }); }
 });
