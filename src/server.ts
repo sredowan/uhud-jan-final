@@ -116,32 +116,35 @@ app.get('/api/admin/run-firebase-migration', async (req, res) => {
         // 1. Init Firebase (Local scope only)
         let dbFS;
         try {
-            // Need service account
-            const serviceAccount = require("../serviceAccountKey.json");
+            let serviceAccount;
+            try {
+                serviceAccount = require("../serviceAccountKey.json");
+            } catch (err) {
+                console.log("⚠️ serviceAccountKey.json not found, trying Env Var...");
+                if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+                    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+                } else {
+                    throw new Error("Missing serviceAccountKey.json AND FIREBASE_SERVICE_ACCOUNT_JSON env var");
+                }
+            }
+
             // Check if already init
-            try { initializeApp({ credential: cert(serviceAccount as any), databaseURL: "https://uhd-first-default-rtdb.firebaseio.com" }, 'migration-app'); }
-            catch { /* ignore if exists */ }
+            try {
+                // Legacy check/init logic
+                // If we are here, we have serviceAccount object
+                const fsApp = initializeApp({
+                    credential: cert(serviceAccount),
+                    databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
+                }, 'migration-' + Date.now());
+                dbFS = getFirestore(fsApp);
+                log("✅ Firebase initialized for migration");
+            } catch (initErr) {
+                throw new Error("Firebase Init Error: " + initErr.message);
+            }
 
-            // Get app instance (default or named)
-            // Just try getting Firestore from default or new app
-            // Actually, initializeApp without name uses default. If default exists, it throws.
-            // We can check `admin.apps.length`.
-            // Simplest: Just try catch.
-
-            // To be safe, we'll assume default app might be init if we kept it? 
-            // Previous code removed it. So we init here.
-
-            // Since we removed 'firebase-admin' global init, we can init a specific app for migration
-            const fsApp = initializeApp({
-                credential: cert(serviceAccount as any),
-                databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
-            }, 'migration-' + Date.now()); // Unique name to avoid clashes
-            dbFS = getFirestore(fsApp);
-
-            log("✅ Firebase initialized for migration");
         } catch (e) {
             log("❌ Failed to init Firebase: " + e.message);
-            log("Ensure serviceAccountKey.json is on server root.");
+            log("SOLUTION: Upload 'serviceAccountKey.json' to root OR set 'FIREBASE_SERVICE_ACCOUNT_JSON' env var.");
             return res.status(500).json({ logs, error: "Firebase Init Failed" });
         }
 
