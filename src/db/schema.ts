@@ -99,3 +99,14 @@ export const siteSettings = mysqlTable('site_settings', {
     settings: json('settings').notNull(), // Store full JSON object for flexibility
     updatedAt: timestamp('updatedAt').defaultNow(),
 });
+
+export const projectsRelations = relations(projects, ({ many }) => ({
+    units: many(projectUnits),
+}));
+
+export const projectUnitsRelations = relations(projectUnits, ({ one }) => ({
+    project: one(projects, {
+        fields: [projectUnits.projectId],
+        references: [projects.id],
+    }),
+}));
