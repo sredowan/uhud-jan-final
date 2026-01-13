@@ -32,11 +32,9 @@ process.on('unhandledRejection', (reason, promise) => {
 // Initialize Firebase Admin SDK
 // Initialize Firebase Admin SDK
 import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const serviceAccount = require("../serviceAccountKey.json");
-
 let db;
 try {
+    const serviceAccount = require("../serviceAccountKey.json");
     initializeApp({
         credential: cert(serviceAccount as any),
         databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
@@ -44,7 +42,7 @@ try {
     console.log("Firebase Admin SDK initialized successfully");
     db = getFirestore();
 } catch (error) {
-    console.error("Failed to initialize Firebase Admin:", error);
+    console.error("Failed to initialize Firebase Admin (likely missing serviceAccountKey.json):", error.message);
     // Do NOT crash the server, just let db be undefined
 }
 
