@@ -10,10 +10,13 @@ import { drizzle } from 'drizzle-orm/mysql2';
 import mysql from 'mysql2/promise';
 import { migrate } from 'drizzle-orm/mysql2/migrator';
 import * as schema from './db/schema';
-import { eq, desc, asc } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { eq, desc, asc, sql } from 'drizzle-orm';
+// ... (omitted unrelated imports)
+
+
+
+res.send(logs.join('\n'));
+
 
 
 dotenv.config(); // Load .env if exists
@@ -431,6 +434,23 @@ app.get('/debug.txt', async (req, res) => {
         }
     } else {
         log('SKIP: No DATABASE_URL found.');
+    }
+
+    // 3. Data Counts
+    log('\n[3] Data Counts:');
+    if (db) {
+        try {
+            const pCount = await db.select({ count: sql`count(*)` }).from(schema.projects);
+            const gCount = await db.select({ count: sql`count(*)` }).from(schema.galleryItems);
+            const mCount = await db.select({ count: sql`count(*)` }).from(schema.messages);
+            log(`Projects: ${pCount[0].count}`);
+            log(`Gallery: ${gCount[0].count}`);
+            log(`Messages: ${mCount[0].count}`);
+        } catch (e) {
+            log(`❌ Failed to count data: ${e.message}`);
+        }
+    } else {
+        log('SKIP: DB not initialized');
     }
 
     res.send(logs.join('\n'));
