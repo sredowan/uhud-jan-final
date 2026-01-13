@@ -4,7 +4,7 @@ import { db } from "./db"; // Adjust path to your db instance
 
 export const auth = betterAuth({
     database: drizzleAdapter(db, {
-        provider: "pg", // or "mysql", "sqlite"
+        provider: "mysql",
     }),
     emailAndPassword: {
         enabled: true
