@@ -9,6 +9,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import * as dotenv from 'dotenv';
 import xhr from 'xmlhttprequest-ssl';
 import WebSocket from 'ws';
+import mysql from 'mysql2/promise';
 
 // Polyfill for Firebase (Might not be needed for Admin SDK but keeping for safety if mixed usage exists)
 (global as any).XMLHttpRequest = xhr.XMLHttpRequest;
@@ -208,10 +209,45 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 const distDir = path.join(__dirname, '..', 'dist');
 app.use(express.static(distDir));
 
+// Debug Route
+app.get('/debug.txt', async (req, res) => {
+    res.setHeader('Content-Type', 'text/plain');
+    const logs = [];
+    const log = (msg) => logs.push(msg);
+
+    log('--- Hostinger Debug Report ---');
+    log(`Date: ${new Date().toISOString()}`);
+    log(`Node Version: ${process.version}`);
+
+    // 1. Env Vars
+    log('\n[1] Environment Variables:');
+    const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL'];
+    const missing = required.filter(k => !process.env[k]);
+    if (missing.length) log(`❌ Missing: ${missing.join(', ')}`);
+    else log('✅ All required env vars present.');
+
+    // 2. MySQL Connection
+    log('\n[2] MySQL Database Connection:');
+    if (process.env.DATABASE_URL) {
+        try {
+            const conn = await mysql.createConnection(process.env.DATABASE_URL);
+            await conn.ping();
+            await conn.end();
+            log('✅ Connection successful!');
+        } catch (err) {
+            log(`❌ Connection failed: ${err.message}`);
+        }
+    } else {
+        log('SKIP: No DATABASE_URL found.');
+    }
+
+    res.send(logs.join('\n'));
+});
+
 // Catch-all handler
 app.get(/.*/, (req, res) => {
     if (req.path.startsWith('/api')) return res.status(404).json({ error: 'API Not Found' });
-    res.sendFile(path.join(distDir, 'index.dev.html'));
+    res.sendFile(path.join(distDir, 'index.html'));
 });
 
 app.listen(PORT, () => {
