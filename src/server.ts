@@ -35,17 +35,26 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const serviceAccount = require("../serviceAccountKey.json");
 
+let db;
 try {
     initializeApp({
         credential: cert(serviceAccount as any),
         databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
     });
     console.log("Firebase Admin SDK initialized successfully");
+    db = getFirestore();
 } catch (error) {
     console.error("Failed to initialize Firebase Admin:", error);
+    // Do NOT crash the server, just let db be undefined
 }
 
-const db = getFirestore();
+// Helper to check DB status before requests
+const ensureDb = (req, res, next) => {
+    if (!db) {
+        return res.status(503).json({ error: "Firebase Service Unavailable (Initialization Failed)" });
+    }
+    next();
+};
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -65,10 +74,16 @@ if (!fs.existsSync(uploadDir)) {
 // JSON middleware
 app.use(express.json());
 
+// Basic Health Check (No DB dependency)
+app.get('/', (req, res) => {
+    res.status(200).send('Server is Running! Visit /debug.txt for status.');
+});
+
 // --- API Routes ---
 
 // 1. Projects
-app.get('/api/projects', async (req, res) => {
+// 1. Projects
+app.get('/api/projects', ensureDb, async (req, res) => {
     console.log("GET /api/projects - Request received");
     try {
         const projectsRef = db.collection("projects");
@@ -86,7 +101,7 @@ app.get('/api/projects', async (req, res) => {
     }
 });
 
-app.post('/api/projects', async (req, res) => {
+app.post('/api/projects', ensureDb, async (req, res) => {
     try {
         const { units, ...projectData } = req.body;
         const projectsRef = db.collection("projects");
@@ -113,7 +128,7 @@ app.post('/api/projects', async (req, res) => {
 });
 
 // 2. Gallery
-app.get('/api/gallery', async (req, res) => {
+app.get('/api/gallery', ensureDb, async (req, res) => {
     try {
         const snapshot = await db.collection("gallery_items").orderBy("createdAt", "desc").get();
         const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -121,7 +136,7 @@ app.get('/api/gallery', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "Failed to fetch gallery" }); }
 });
 
-app.post('/api/gallery', async (req, res) => {
+app.post('/api/gallery', ensureDb, async (req, res) => {
     try {
         const newItem = {
             ...req.body,
@@ -133,7 +148,7 @@ app.post('/api/gallery', async (req, res) => {
 });
 
 // 3. Messages
-app.get('/api/messages', async (req, res) => {
+app.get('/api/messages', ensureDb, async (req, res) => {
     try {
         const snapshot = await db.collection("messages").orderBy("date", "desc").get();
         const msgs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -141,7 +156,7 @@ app.get('/api/messages', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "Failed to fetch messages" }); }
 });
 
-app.post('/api/messages', async (req, res) => {
+app.post('/api/messages', ensureDb, async (req, res) => {
     try {
         const newMsg = {
             ...req.body,
@@ -153,7 +168,7 @@ app.post('/api/messages', async (req, res) => {
 });
 
 // 4. Settings
-app.get('/api/settings', async (req, res) => {
+app.get('/api/settings', ensureDb, async (req, res) => {
     try {
         const docRef = db.collection("site_settings").doc("global");
         const docSnap = await docRef.get();
@@ -165,7 +180,7 @@ app.get('/api/settings', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "Failed to fetch settings" }); }
 });
 
-app.post('/api/settings', async (req, res) => {
+app.post('/api/settings', ensureDb, async (req, res) => {
     try {
         const docRef = db.collection("site_settings").doc("global");
         await docRef.set({
