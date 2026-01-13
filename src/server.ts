@@ -31,7 +31,9 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Initialize Firebase Admin SDK
 // Initialize Firebase Admin SDK
-import serviceAccount from '../serviceAccountKey.json' assert { type: "json" };
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const serviceAccount = require("../serviceAccountKey.json");
 
 try {
     initializeApp({
