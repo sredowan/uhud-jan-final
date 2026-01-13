@@ -379,6 +379,12 @@ app.get('/debug.txt', async (req, res) => {
             log(`Projects: ${pCount[0].count}`);
             log(`Gallery: ${gCount[0].count}`);
             log(`Messages: ${mCount[0].count}`);
+
+            // Debug: Show first project structure
+            const sample = await db.query.projects.findFirst({ with: { units: true } });
+            log(`\n[4] Sample Data Structure:`);
+            log(JSON.stringify(sample, null, 2));
+
         } catch (e) {
             log(`❌ Failed to count data: ${e.message}`);
             log(e.stack);
