@@ -404,6 +404,17 @@ app.get('/debug.txt', async (req, res) => {
     log('\n[1] Environment Variables:');
     const required = ['DATABASE_URL', 'BETTER_AUTH_SECRET', 'BETTER_AUTH_URL'];
     const missing = required.filter(k => !process.env[k]);
+
+    // Check Firebase - either file or env var must exist
+    let fbStatus = "❌ Missing Service Account (File or Env Var)";
+    try {
+        require('../serviceAccountKey.json');
+        fbStatus = "✅ serviceAccountKey.json found";
+    } catch {
+        if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) fbStatus = "✅ FIREBASE_SERVICE_ACCOUNT_JSON Env Var found";
+    }
+    log(`Firebase Auth: ${fbStatus}`);
+
     if (missing.length) log(`❌ Missing: ${missing.join(', ')}`);
     else log('✅ All required env vars present.');
 
