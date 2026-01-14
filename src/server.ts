@@ -131,12 +131,20 @@ app.post('/api/projects', ensureDb, async (req, res) => {
     try {
         const { units, ...projectData } = req.body;
         const projectId = uuidv4();
-        // Fix: Explicitly stringify JSON fields for Hostinger MariaDB
+        // Fix: Handle JSON fields - avoid double-stringify
+        let amenitiesValue = projectData.buildingAmenities;
+        if (Array.isArray(amenitiesValue)) {
+            amenitiesValue = JSON.stringify(amenitiesValue);
+        } else if (typeof amenitiesValue === 'string') {
+            // Already a string, check if double-quoted
+            if (amenitiesValue.startsWith('"[')) {
+                amenitiesValue = amenitiesValue.slice(1, -1);
+            }
+        }
+
         const preparedProject = {
             ...projectData,
-            buildingAmenities: Array.isArray(projectData.buildingAmenities)
-                ? JSON.stringify(projectData.buildingAmenities)
-                : projectData.buildingAmenities
+            buildingAmenities: amenitiesValue
         };
 
         await db.insert(schema.projects).values({
@@ -145,12 +153,20 @@ app.post('/api/projects', ensureDb, async (req, res) => {
             order: Date.now(),
         });
         if (units && units.length > 0) {
-            const unitsWithId = units.map(u => ({
-                id: uuidv4(),
-                projectId,
-                ...u,
-                features: Array.isArray(u.features) ? JSON.stringify(u.features) : u.features
-            }));
+            const unitsWithId = units.map(u => {
+                let featuresValue = u.features;
+                if (Array.isArray(featuresValue)) {
+                    featuresValue = JSON.stringify(featuresValue);
+                } else if (typeof featuresValue === 'string' && featuresValue.startsWith('"[')) {
+                    featuresValue = featuresValue.slice(1, -1);
+                }
+                return {
+                    id: uuidv4(),
+                    projectId,
+                    ...u,
+                    features: featuresValue
+                };
+            });
             await db.insert(schema.projectUnits).values(unitsWithId);
         }
 
@@ -203,11 +219,26 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
         if (safeData.logoUrl !== undefined) updatePayload.logoUrl = safeData.logoUrl;
         if (safeData.order !== undefined) updatePayload.order = safeData.order;
 
-        // Handle JSON field safely
+        // Handle JSON field safely - avoid double-stringify
         if (safeData.buildingAmenities !== undefined) {
-            updatePayload.buildingAmenities = Array.isArray(safeData.buildingAmenities)
-                ? JSON.stringify(safeData.buildingAmenities)
-                : safeData.buildingAmenities;
+            let amenities = safeData.buildingAmenities;
+
+            // If it's an array, stringify it
+            if (Array.isArray(amenities)) {
+                updatePayload.buildingAmenities = JSON.stringify(amenities);
+            }
+            // If it's already a string, check if it's valid JSON (already stringified)
+            else if (typeof amenities === 'string') {
+                // Check if it looks like a JSON array string
+                if (amenities.startsWith('[') || amenities.startsWith('"[')) {
+                    // Already stringified, use as-is (but clean double-quotes if present)
+                    updatePayload.buildingAmenities = amenities.startsWith('"[')
+                        ? amenities.slice(1, -1)  // Remove outer quotes
+                        : amenities;
+                } else {
+                    updatePayload.buildingAmenities = amenities;
+                }
+            }
         }
 
         // Always add updatedAt
