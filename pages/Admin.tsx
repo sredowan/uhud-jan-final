@@ -137,7 +137,21 @@ const Admin: React.FC = () => {
   };
 
   const handleEditClick = (project: Project) => {
-    setProjectForm({ ...project, logoUrl: project.logoUrl || '', units: project.units || [], buildingAmenities: project.buildingAmenities || [] });
+    // Safe parse to handle strings from MariaDB
+    const safeParseArray = (val: any) => {
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'string') {
+        try { return JSON.parse(val); } catch { return []; }
+      }
+      return [];
+    };
+
+    setProjectForm({
+      ...project,
+      logoUrl: project.logoUrl || '',
+      units: safeParseArray(project.units),
+      buildingAmenities: safeParseArray(project.buildingAmenities)
+    });
     setIsEditing(true);
   };
 
