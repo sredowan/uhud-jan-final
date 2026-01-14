@@ -95,11 +95,27 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateProject = async (project: Project) => {
-    // Implement PUT
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(project)
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      const updated = await res.json();
+      setProjects(prev => prev.map(p => p.id === project.id ? updated : p));
+    } catch (err) { console.error(err); throw err; }
   };
 
   const deleteProject = async (id: string) => {
-    // Implement DELETE
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to delete");
+      }
+      setProjects(prev => prev.filter(p => p.id !== id));
+    } catch (err) { console.error(err); throw err; }
   };
 
   const reorderProjects = async (id: string, direction: 'up' | 'down') => {

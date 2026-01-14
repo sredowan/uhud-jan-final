@@ -5,8 +5,16 @@ import { MapPin, Phone, Mail, ArrowLeft, Bed, Bath, LayoutGrid, Zap, PhoneCall, 
 
 const ProjectDetails: React.FC = () => {
    const { id } = useParams<{ id: string }>();
-   const { getProject, settings } = useProjects();
+   const { getProject, settings, loading } = useProjects();
    const [activeTab, setActiveTab] = useState(0);
+
+   if (loading) {
+      return (
+         <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-600"></div>
+         </div>
+      );
+   }
 
    const project = getProject(id || '');
 

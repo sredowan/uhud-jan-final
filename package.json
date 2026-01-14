@@ -8,7 +8,6 @@
     "build": "vite build && npx esbuild src/server.ts --bundle --platform=node --outfile=dist/server.js --format=esm --packages=external",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "deploy": "vite build && firebase deploy",
     "server": "node dist/server.js",
     "start": "node dist/server.js"
   },
@@ -20,8 +19,6 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
-    "firebase": "^10.8.1",
-    "firebase-admin": "^13.6.0",
     "lucide-react": "^0.344.0",
     "multer": "^2.0.2",
     "mysql2": "^3.16.0",

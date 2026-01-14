@@ -12,8 +12,7 @@ import { migrate } from 'drizzle-orm/mysql2/migrator';
 import * as schema from './db/schema';
 import { eq, desc, asc, sql } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import { cert, initializeApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+
 
 // 1. Config & Setup
 dotenv.config(); // Load .env
@@ -81,6 +80,10 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
 app.use(express.json());
 
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./auth";
+app.all("/api/auth/*path", toNodeHandler(auth));
+
 // Root Route
 app.get('/', (req, res) => {
     res.status(200).send('Server is Running! Visit /debug.txt for status.');
@@ -89,125 +92,36 @@ app.get('/', (req, res) => {
 // --- API Routes ---
 
 // Migration Endpoint
-app.get('/api/admin/run-firebase-migration', async (req, res) => {
-    if (!db) return res.status(503).json({ error: "MySQL not connected" });
 
-    console.log("🚀 Starting Manual Data Migration...");
-    const logs = [];
-    const log = (m) => { console.log(m); logs.push(m); };
-
-    try {
-        let dbFS;
-        try {
-            let serviceAccount;
-            try {
-                serviceAccount = require("../serviceAccountKey.json");
-            } catch (err) {
-                console.log("⚠️ serviceAccountKey.json not found, trying Env Var...");
-                if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-                    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-                } else {
-                    throw new Error("Missing serviceAccountKey.json AND FIREBASE_SERVICE_ACCOUNT_JSON env var");
-                }
-            }
-
-            const fsApp = initializeApp({
-                credential: cert(serviceAccount),
-                databaseURL: "https://uhd-first-default-rtdb.firebaseio.com"
-            }, 'migration-' + Date.now());
-            dbFS = getFirestore(fsApp);
-            log("✅ Firebase initialized for migration");
-        } catch (e) {
-            log("❌ Failed to init Firebase: " + e.message);
-            return res.status(500).json({ logs, error: "Firebase Init Failed" });
-        }
-
-        // Migrate Projects
-        log("📦 Migrating Projects...");
-        const projectsSnap = await dbFS.collection('projects').get();
-        let pCount = 0;
-        for (const doc of projectsSnap.docs) {
-            const data = doc.data();
-            await db.insert(schema.projects).values({
-                id: doc.id,
-                title: data.title || "Untitled",
-                location: data.location || "",
-                price: data.price ? String(data.price) : null,
-                description: data.description || "",
-                status: data.status || "Ongoing",
-                imageUrl: data.imageUrl || "",
-                logoUrl: data.logoUrl || null,
-                buildingAmenities: data.buildingAmenities || [],
-                order: data.order || 0,
-            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
-            pCount++;
-        }
-        log(`Synced ${pCount} Projects.`);
-
-        // Migrate Gallery
-        log("🖼 Migrating Gallery...");
-        const gallerySnap = await dbFS.collection('gallery_items').get();
-        let gCount = 0;
-        for (const doc of gallerySnap.docs) {
-            const data = doc.data();
-            await db.insert(schema.galleryItems).values({
-                id: doc.id,
-                url: data.url || "",
-                caption: data.caption || "",
-                category: data.category || "General"
-            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
-            gCount++;
-        }
-        log(`Synced ${gCount} Gallery Items.`);
-
-        // Migrate Messages
-        log("💬 Migrating Messages...");
-        const msgSnap = await dbFS.collection('messages').get();
-        let mCount = 0;
-        for (const doc of msgSnap.docs) {
-            const data = doc.data();
-            await db.insert(schema.messages).values({
-                id: doc.id,
-                name: data.name || "Unknown",
-                email: data.email || "no-email",
-                phone: data.phone || "",
-                message: data.message || "",
-                date: data.date ? new Date(data.date) : new Date(),
-                read: data.read || false
-            }).onDuplicateKeyUpdate({ set: { id: doc.id } });
-            mCount++;
-        }
-        log(`Synced ${mCount} Messages.`);
-
-        // Migrate Settings
-        log("⚙️ Migrating Settings...");
-        const settingsDoc = await dbFS.collection('site_settings').doc('global').get();
-        if (settingsDoc.exists) {
-            const data = settingsDoc.data();
-            await db.insert(schema.siteSettings).values({
-                id: 1,
-                settings: data?.settings || {}
-            }).onDuplicateKeyUpdate({ set: { settings: data?.settings || {} } });
-            log("Synced Settings.");
-        }
-
-        log("✅ Migration Complete!");
-        res.json({ success: true, logs });
-
-    } catch (err) {
-        log("❌ Migration Error: " + err.message);
-        res.status(500).json({ error: err.message, logs });
-    }
-});
 
 // Projects API
 app.get('/api/projects', ensureDb, async (req, res) => {
     try {
         const projectsData = await db.query.projects.findMany({
             orderBy: [asc(schema.projects.order)],
-            with: { units: true }
         });
-        res.json(projectsData);
+
+        const unitsData = await db.query.projectUnits.findMany();
+
+        const safeParse = (val: any) => {
+            if (typeof val === 'string') {
+                try { return JSON.parse(val); } catch (e) { return []; }
+            }
+            return Array.isArray(val) ? val : [];
+        };
+
+        const projectsWithUnits = projectsData.map(project => ({
+            ...project,
+            buildingAmenities: safeParse(project.buildingAmenities),
+            units: unitsData
+                .filter(unit => unit.projectId === project.id)
+                .map(unit => ({
+                    ...unit,
+                    features: safeParse(unit.features)
+                }))
+        }));
+
+        res.json(projectsWithUnits);
     } catch (err: any) {
         console.error("Error fetching projects:", err);
         res.status(500).json({ error: "Failed to fetch projects" });
@@ -227,14 +141,97 @@ app.post('/api/projects', ensureDb, async (req, res) => {
             const unitsWithId = units.map(u => ({ id: uuidv4(), projectId, ...u }));
             await db.insert(schema.projectUnits).values(unitsWithId);
         }
+
+        // Manual fetch instead of relational query
         const newProject = await db.query.projects.findFirst({
             where: eq(schema.projects.id, projectId),
-            with: { units: true }
         });
-        res.json(newProject);
+        const projectUnits = await db.query.projectUnits.findMany({
+            where: eq(schema.projectUnits.projectId, projectId)
+        });
+
+        const safeParse = (val: any) => {
+            if (typeof val === 'string') {
+                try { return JSON.parse(val); } catch (e) { return []; }
+            }
+            return Array.isArray(val) ? val : [];
+        };
+
+        res.json({
+            ...newProject,
+            buildingAmenities: safeParse(newProject.buildingAmenities),
+            units: projectUnits.map(u => ({ ...u, features: safeParse(u.features) }))
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to create project" });
+    }
+});
+
+app.put('/api/projects/:id', ensureDb, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { units, ...projectData } = req.body;
+
+        await db.update(schema.projects)
+            .set({ ...projectData, updatedAt: new Date() })
+            .where(eq(schema.projects.id, id));
+
+        if (units) {
+            // Simplest strategy: Delete old units and re-add new ones (or complex diffing)
+            // For now, let's assuming full replacement of units if provided
+            await db.delete(schema.projectUnits).where(eq(schema.projectUnits.projectId, id));
+
+            if (units.length > 0) {
+                const unitsWithId = units.map(u => ({
+                    id: u.id || uuidv4(),
+                    projectId: id,
+                    ...u
+                }));
+                await db.insert(schema.projectUnits).values(unitsWithId);
+            }
+        }
+
+        // Manual fetch instead of relational query
+        const updatedProject = await db.query.projects.findFirst({
+            where: eq(schema.projects.id, id),
+        });
+        const projectUnits = await db.query.projectUnits.findMany({
+            where: eq(schema.projectUnits.projectId, id)
+        });
+
+        const safeParse = (val: any) => {
+            if (typeof val === 'string') {
+                try { return JSON.parse(val); } catch (e) { return []; }
+            }
+            return Array.isArray(val) ? val : [];
+        };
+
+        res.json({
+            ...updatedProject,
+            buildingAmenities: safeParse(updatedProject.buildingAmenities),
+            units: projectUnits.map(u => ({ ...u, features: safeParse(u.features) }))
+        });
+    } catch (err: any) {
+        console.error("Error updating project:", err);
+        res.status(500).json({ error: "Failed to update project" });
+    }
+});
+
+app.delete('/api/projects/:id', ensureDb, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Manual Cascade Delete: Delete units first
+        await db.delete(schema.projectUnits).where(eq(schema.projectUnits.projectId, id));
+
+        // Then delete the project
+        await db.delete(schema.projects).where(eq(schema.projects.id, id));
+
+        res.json({ success: true, id });
+    } catch (err: any) {
+        console.error("Error deleting project:", err);
+        res.status(500).json({ error: "Failed to delete project: " + err.message });
     }
 });
 
@@ -342,14 +339,7 @@ app.get('/debug.txt', async (req, res) => {
     const missing = required.filter(k => !process.env[k]);
 
     // Firebase Check
-    let fbStatus = "❌ Missing Service Account (File or Env Var)";
-    try {
-        require('../serviceAccountKey.json');
-        fbStatus = "✅ serviceAccountKey.json found";
-    } catch {
-        if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) fbStatus = "✅ FIREBASE_SERVICE_ACCOUNT_JSON Env Var found";
-    }
-    log(`Firebase Auth: ${fbStatus}`);
+
 
     if (missing.length) log(`❌ Missing: ${missing.join(', ')}`);
     else log('✅ All required env vars present.');
@@ -381,9 +371,12 @@ app.get('/debug.txt', async (req, res) => {
             log(`Messages: ${mCount[0].count}`);
 
             // Debug: Show first project structure
-            const sample = await db.query.projects.findFirst({ with: { units: true } });
+            // Manual fetch for debug too
+            const sample = await db.query.projects.findFirst();
+            const sampleUnits = sample ? await db.query.projectUnits.findMany({ where: eq(schema.projectUnits.projectId, sample.id) }) : [];
+
             log(`\n[4] Sample Data Structure:`);
-            log(JSON.stringify(sample, null, 2));
+            log(JSON.stringify({ ...sample, units: sampleUnits }, null, 2));
 
         } catch (e) {
             log(`❌ Failed to count data: ${e.message}`);
