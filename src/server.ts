@@ -131,13 +131,26 @@ app.post('/api/projects', ensureDb, async (req, res) => {
     try {
         const { units, ...projectData } = req.body;
         const projectId = uuidv4();
+        // Fix: Explicitly stringify JSON fields for Hostinger MariaDB
+        const preparedProject = {
+            ...projectData,
+            buildingAmenities: Array.isArray(projectData.buildingAmenities)
+                ? JSON.stringify(projectData.buildingAmenities)
+                : projectData.buildingAmenities
+        };
+
         await db.insert(schema.projects).values({
             id: projectId,
-            ...projectData,
+            ...preparedProject,
             order: Date.now(),
         });
         if (units && units.length > 0) {
-            const unitsWithId = units.map(u => ({ id: uuidv4(), projectId, ...u }));
+            const unitsWithId = units.map(u => ({
+                id: uuidv4(),
+                projectId,
+                ...u,
+                features: Array.isArray(u.features) ? JSON.stringify(u.features) : u.features
+            }));
             await db.insert(schema.projectUnits).values(unitsWithId);
         }
 
@@ -172,8 +185,16 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
         const { id } = req.params;
         const { units, ...projectData } = req.body;
 
+        // Fix: Explicitly stringify JSON fields
+        const preparedProject = {
+            ...projectData,
+            buildingAmenities: Array.isArray(projectData.buildingAmenities)
+                ? JSON.stringify(projectData.buildingAmenities)
+                : projectData.buildingAmenities
+        };
+
         await db.update(schema.projects)
-            .set({ ...projectData, updatedAt: new Date() })
+            .set({ ...preparedProject, updatedAt: new Date() })
             .where(eq(schema.projects.id, id));
 
         if (units) {
@@ -185,7 +206,8 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
                 const unitsWithId = units.map(u => ({
                     id: u.id || uuidv4(),
                     projectId: id,
-                    ...u
+                    ...u,
+                    features: Array.isArray(u.features) ? JSON.stringify(u.features) : u.features
                 }));
                 await db.insert(schema.projectUnits).values(unitsWithId);
             }
