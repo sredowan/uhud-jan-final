@@ -85,9 +85,8 @@ import { auth } from "./auth";
 app.all("/api/auth/*path", toNodeHandler(auth));
 
 // Root Route
-app.get('/', (req, res) => {
-    res.status(200).send('Server is Running! Visit /debug.txt for status.');
-});
+// Root Route removed to allow frontend serving via express.static and catch-all
+
 
 // --- API Routes ---
 
