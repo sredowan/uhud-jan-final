@@ -129,8 +129,11 @@ app.get('/api/projects', ensureDb, async (req, res) => {
 
 app.post('/api/projects', ensureDb, async (req, res) => {
     try {
-        const { units, ...projectData } = req.body;
+        const { units, id: clientId, ...projectData } = req.body;
+
+        // Always generate a server-side ID, ignore any client-provided ID
         const projectId = uuidv4();
+
         // Fix: Handle JSON fields - avoid double-stringify
         let amenitiesValue = projectData.buildingAmenities;
         if (Array.isArray(amenitiesValue)) {

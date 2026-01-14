@@ -110,17 +110,26 @@ const Admin: React.FC = () => {
   // --- Project Handlers ---
   const handleProjectSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!projectForm.title || !projectForm.imageUrl) return;
+    if (!projectForm.title || !projectForm.imageUrl) {
+      alert('Please provide a title and image URL.');
+      return;
+    }
 
     const projectData: Project = { ...projectForm, units: projectForm.units || [], buildingAmenities: projectForm.buildingAmenities || [] };
 
     try {
       if (isEditing) {
+        // Validate that we have an ID to update
+        if (!projectForm.id) {
+          alert('Error: Cannot update project without an ID. Please refresh and try again.');
+          return;
+        }
         await updateProject(projectData);
         setIsEditing(false);
       } else {
+        // For new projects, remove the empty ID - server will generate one
         const { id, ...newProjectData } = projectData;
-        await addProject(projectData);
+        await addProject(newProjectData as Project);
       }
       setProjectForm({ id: '', title: '', location: '', price: '', description: '', status: 'Upcoming', imageUrl: '', logoUrl: '', units: [], buildingAmenities: [] });
       alert(isEditing ? 'Project Updated!' : 'Project Added!');
