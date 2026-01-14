@@ -183,18 +183,34 @@ app.post('/api/projects', ensureDb, async (req, res) => {
 app.put('/api/projects/:id', ensureDb, async (req, res) => {
     try {
         const { id } = req.params;
-        const { units, ...projectData } = req.body;
+        // Fix: Sanitize update payload
+        // 1. Remove ID (don't update PK)
+        // 2. Remove units (handled separately)
+        // 3. Remove timestamps (handled by updated_at)
+        // 4. Ensure amenities are handled correctly
 
-        // Fix: Explicitly stringify JSON fields
-        const preparedProject = {
-            ...projectData,
-            buildingAmenities: Array.isArray(projectData.buildingAmenities)
-                ? JSON.stringify(projectData.buildingAmenities)
-                : projectData.buildingAmenities
+        const { id: _id, units, createdAt, updatedAt, ...safeData } = req.body;
+
+        const updatePayload: any = {
+            title: safeData.title,
+            location: safeData.location,
+            price: safeData.price,
+            description: safeData.description,
+            status: safeData.status,
+            imageUrl: safeData.imageUrl,
+            logoUrl: safeData.logoUrl,
+            order: safeData.order,
         };
 
+        // Handle JSON field safely
+        if (safeData.buildingAmenities !== undefined) {
+            updatePayload.buildingAmenities = Array.isArray(safeData.buildingAmenities)
+                ? JSON.stringify(safeData.buildingAmenities)
+                : safeData.buildingAmenities;
+        }
+
         await db.update(schema.projects)
-            .set({ ...preparedProject, updatedAt: new Date() })
+            .set({ ...updatePayload, updatedAt: new Date() })
             .where(eq(schema.projects.id, id));
 
         if (units) {
@@ -235,7 +251,8 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
         });
     } catch (err: any) {
         console.error("Error updating project:", err);
-        res.status(500).json({ error: "Failed to update project" });
+        // RETURN ACTUAL ERROR FOR DEBUGGING
+        res.status(500).json({ error: "Failed to update project", details: err.message, stack: err.stack });
     }
 });
 
