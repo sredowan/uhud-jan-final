@@ -5,8 +5,8 @@ console.log("CWD:", process.cwd());
 const envPath = path.resolve(process.cwd(), '.env');
 const envContent = `DATABASE_URL="mysql://u632925822_db_user_2:Redowan173123@148.222.53.5:3306/u632925822_db_uhud_2"
 BETTER_AUTH_SECRET=f8e9d2c1a4b5e7d8f9e0a1b2c3d4e5f6g7h8i9j0k1l2m3n4
-BETTER_AUTH_URL=https://mediumvioletred-mandrill-596025.hostingersite.com
-VITE_BETTER_AUTH_URL=https://mediumvioletred-mandrill-596025.hostingersite.com
+BETTER_AUTH_URL=https://uhudbuilders.com
+VITE_BETTER_AUTH_URL=https://uhudbuilders.com
 FRONTEND_URL=http://localhost:5173
 `;
 

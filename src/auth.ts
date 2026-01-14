@@ -10,7 +10,7 @@ export const auth = betterAuth({
         enabled: true
     },
     baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3001",
-    trustedOrigins: ["http://localhost:5173", "http://localhost:3001", "https://mediumvioletred-mandrill-596025.hostingersite.com"],
+    trustedOrigins: ["http://localhost:5173", "http://localhost:3001", "https://uhudbuilders.com", "https://www.uhudbuilders.com"],
     advanced: {
         crossSubDomainCookies: {
             enabled: true
