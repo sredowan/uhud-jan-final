@@ -191,16 +191,17 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
 
         const { id: _id, units, createdAt, updatedAt, ...safeData } = req.body;
 
-        const updatePayload: any = {
-            title: safeData.title,
-            location: safeData.location,
-            price: safeData.price,
-            description: safeData.description,
-            status: safeData.status,
-            imageUrl: safeData.imageUrl,
-            logoUrl: safeData.logoUrl,
-            order: safeData.order,
-        };
+        // Build payload only with defined values
+        const updatePayload: any = {};
+
+        if (safeData.title !== undefined) updatePayload.title = safeData.title;
+        if (safeData.location !== undefined) updatePayload.location = safeData.location;
+        if (safeData.price !== undefined) updatePayload.price = safeData.price;
+        if (safeData.description !== undefined) updatePayload.description = safeData.description;
+        if (safeData.status !== undefined) updatePayload.status = safeData.status;
+        if (safeData.imageUrl !== undefined) updatePayload.imageUrl = safeData.imageUrl;
+        if (safeData.logoUrl !== undefined) updatePayload.logoUrl = safeData.logoUrl;
+        if (safeData.order !== undefined) updatePayload.order = safeData.order;
 
         // Handle JSON field safely
         if (safeData.buildingAmenities !== undefined) {
@@ -209,8 +210,13 @@ app.put('/api/projects/:id', ensureDb, async (req, res) => {
                 : safeData.buildingAmenities;
         }
 
+        // Always add updatedAt
+        updatePayload.updatedAt = new Date();
+
+        console.log("[DEBUG] Update Payload:", JSON.stringify(updatePayload)); // Debug log
+
         await db.update(schema.projects)
-            .set({ ...updatePayload, updatedAt: new Date() })
+            .set(updatePayload)
             .where(eq(schema.projects.id, id));
 
         if (units) {
