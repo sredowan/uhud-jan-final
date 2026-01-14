@@ -4,6 +4,7 @@ import * as schema from './schema';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
+dotenv.config({ path: '.env.production' });
 
 const poolConnection = mysql.createPool({
     uri: process.env.DATABASE_URL,
